@@ -15,7 +15,10 @@ static struct addrinfo hints, *res0, *dest;
 struct {
     struct icmp icmp;
     char data[128];
-} outmsg = { .data = "Hello there!    " };
+} outmsg = {
+    // A surprise to be sure, but a welcome one!
+   .data = "Hello there!    "
+};
 struct {
     struct ip ip;
     struct icmp icmp;
