@@ -79,12 +79,13 @@ int main(int argc, char **argv) {
     }
 
     struct timeval t0, t1;
+    int id = arc4random();
     for (int i = 0; ; i++) {
 
         gettimeofday(&t0, NULL);
 
         outmsg.icmp.icmp_type = ICMP_ECHO;
-        outmsg.icmp.icmp_id = htons(1234);
+        outmsg.icmp.icmp_id = htons(id);
         outmsg.icmp.icmp_seq = htons(i);
 
         outmsg.icmp.icmp_cksum = 0;
