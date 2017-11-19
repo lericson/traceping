@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -25,6 +26,26 @@ struct {
     char data[128];
 } inmsg;
 
+static inline void stopw_init(struct timeval *pt0, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    gettimeofday(pt0, NULL);
+    vfprintf(stdout, fmt, args);
+    fprintf(stdout, "... ");
+    fflush(stdout);
+}
+
+static inline void stopw_lap(struct timeval *pt0, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    struct timeval t1;
+    gettimeofday(&t1, NULL);
+    uint32_t td = 1000*(t1.tv_sec - pt0->tv_sec) + (t1.tv_usec - pt0->tv_usec)/1000;
+    vfprintf(stdout, fmt, args);
+    fprintf(stdout, " in %u ms\n", td);
+    va_end(args);
+}
+
 static uint16_t calc_cksum(void *src, size_t len) {
     uint16_t *ptr = (uint16_t *)src;
     uint32_t cks = 0;
@@ -38,6 +59,7 @@ static uint16_t calc_cksum(void *src, size_t len) {
 }
 
 int main(int argc, char **argv) {
+    struct timeval t0;
 
     if (argc < 2) {
         fprintf(stderr, "usage: %s <hostname> <ttl>\n", argv[0]);
@@ -50,6 +72,8 @@ int main(int argc, char **argv) {
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_DEFAULT | AI_CANONNAME;
+
+    stopw_init(&t0, "hostname lookup", ntohs(outmsg.icmp.icmp_seq));
     error = getaddrinfo(argv[1], NULL, &hints, &res0);
     if (error) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(error));
@@ -58,6 +82,7 @@ int main(int argc, char **argv) {
 
     dest = res0;
     for (dest = res0; dest != NULL; dest = dest->ai_next) {
+        stopw_lap(&t0, "resolved");
         printf("pinging %s with ttl %d\n", dest->ai_canonname, ttl);
 
         sock = socket(dest->ai_family, dest->ai_socktype, IPPROTO_ICMP);
@@ -78,11 +103,9 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    struct timeval t0, t1;
     int id = arc4random();
-    for (int i = 0; ; i++) {
 
-        gettimeofday(&t0, NULL);
+    for (int i = 0; ; i++) {
 
         outmsg.icmp.icmp_type = ICMP_ECHO;
         outmsg.icmp.icmp_id = htons(id);
@@ -92,8 +115,7 @@ int main(int argc, char **argv) {
         int len = sizeof(outmsg.icmp) + strlen(outmsg.data);
         outmsg.icmp.icmp_cksum = calc_cksum((void *)&outmsg, len);
 
-        fprintf(stdout, "ping %d... ", ntohs(outmsg.icmp.icmp_seq));
-        fflush(stdout);
+        stopw_init(&t0, "ping %d", ntohs(outmsg.icmp.icmp_seq));;
 
         error = sendto(sock, &outmsg, len, 0, dest->ai_addr, dest->ai_addrlen);
         if (error <= 0) {
@@ -104,9 +126,9 @@ int main(int argc, char **argv) {
             if (len <= 0) {
                 perror("recvfrom");
             }
-            gettimeofday(&t1, NULL);
 
-            //if (calc_cksum(&inmsg.icmp, len - sizeof(inmsg.ip)) != 0) {}
+            // How to validate the checksum:
+            //bool valid = calc_cksum(&inmsg.icmp, len - sizeof(inmsg.ip)) == 0;
 
             char *what = "unknown";
             switch (inmsg.icmp.icmp_type) {
@@ -114,8 +136,11 @@ int main(int argc, char **argv) {
                 case ICMP_TIMXCEED: what = "timxceed"; break;
             };
 
-            uint32_t td = 1000*(t1.tv_sec - t0.tv_sec) + (t1.tv_usec - t0.tv_usec)/1000;
-            fprintf(stdout, "%s %d from %s in %u ms\n", what, ntohs(outmsg.icmp.icmp_seq), inet_ntoa(inmsg.ip.ip_src), td);
+            stopw_lap(&t0,
+                      "%s %d from %s",
+                      what,
+                      ntohs(outmsg.icmp.icmp_seq),
+                      inet_ntoa(inmsg.ip.ip_src));
         }
 
         usleep(5e5);
